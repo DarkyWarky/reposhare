@@ -1,4 +1,4 @@
-import { readDir,mkdir, BaseDirectory, watch,stat,remove,rename } from '@tauri-apps/plugin-fs';
+import { readDir,mkdir, BaseDirectory, watch,stat,remove,rename, create } from '@tauri-apps/plugin-fs';
 import { invoke } from '@tauri-apps/api/core';
 
 export const getFolderInformation = async (folderName='RepoShareDirs', baseDir = BaseDirectory.AppLocalData) => {
@@ -29,12 +29,28 @@ export const getFolderInformation = async (folderName='RepoShareDirs', baseDir =
     }
   };
 
-export const watchFolder = async () => {
+export const watchFolder = async (ws) => {
   try {
     await watch(
       'RepoShareDirs',
-      (event) => {
+      async (event) => {
         console.log('File system event:', event);
+        const path = event.paths[0];
+        const name = path.split('\\').pop();
+
+        if (event.kind === 'create') {
+          const isDirectory = event.type === 'directory';
+          const action = isDirectory ? 'createFolder' : 'createFile';
+          if (!isDirectory) {
+            // Create the file if it's not a directory
+            await invoke('create_file', { path });
+          }
+          ws.send(JSON.stringify({ action, name }));
+        } else if (event.kind === 'update') {
+          // Handle file modification
+          await invoke('modify_file', { path });
+          ws.send(JSON.stringify({ action: 'updateFile', fileName: name }));
+        }
       },
       {
         recursive: true,
@@ -157,5 +173,57 @@ export const applyChangesToFile = async (filePath, changes) => {
   } catch (error) {
     console.error('Failed to update file:', error);
     return 'Failed to update file';
+  }
+};
+
+/**
+ * Creates a file with the specified content.
+ * @param {string} filePath - The path where the file will be created.
+ * @param {string} content - The content to write into the file.
+ * @returns {Promise<boolean>} - True if the file is created successfully, false otherwise.
+ */
+export const createFile = async (filePath, content = 'Hello world') => {
+  try {
+    const file = await create(filePath, { baseDir: BaseDirectory.AppLocalData });
+    await file.write(new TextEncoder().encode(content));
+    await file.close();
+    return true;
+  } catch (error) {
+    console.error('Error creating file:', error);
+    return false;
+  }
+};
+
+/**
+ * Deletes a file at the specified path.
+ * @param {string} filePath - The path of the file to delete.
+ * @returns {Promise<boolean>} - True if the file is deleted successfully, false otherwise.
+ */
+export const deleteFile = async (filePath) => {
+  try {
+    await remove(filePath, { baseDir: BaseDirectory.AppLocalData });
+    return true;
+  } catch (error) {
+    console.error('Error removing file:', error);
+    return false;
+  }
+};
+
+/**
+ * Renames a file from an old path to a new path.
+ * @param {string} oldPath - The current path of the file.
+ * @param {string} newPath - The new path for the file.
+ * @returns {Promise<boolean>} - True if the file is renamed successfully, false otherwise.
+ */
+export const renameFile = async (oldPath, newPath) => {
+  try {
+    await rename(oldPath, newPath, {
+      fromPathBaseDir: BaseDirectory.AppLocalData,
+      toPathBaseDir: BaseDirectory.Temp,
+    });
+    return true;
+  } catch (error) {
+    console.error('Error renaming file:', error);
+    return false;
   }
 };
