@@ -1,5 +1,11 @@
-import { readDir,mkdir, BaseDirectory, watch,stat,remove,rename, create } from '@tauri-apps/plugin-fs';
+import { readDir, mkdir, BaseDirectory, watch, stat, remove, rename, create } from '@tauri-apps/plugin-fs';
 import { invoke } from '@tauri-apps/api/core';
+import Gun from 'gun';
+
+const gun = Gun({
+  peers: ['http://localhost:8765/gun']
+});
+const filesRef = gun.get('files');
 
 export const getFolderInformation = async (folderName='RepoShareDirs', baseDir = BaseDirectory.AppLocalData) => {
     try {
@@ -9,12 +15,13 @@ export const getFolderInformation = async (folderName='RepoShareDirs', baseDir =
       const formatEntry = async (entry) => {
         const { name ,isDirectory,isFile} = entry;
         const type = isDirectory ? 'folder' : isFile?'file':'symlink';
-        const path = folderName+'/'+name
-        const { size, mtime } = await stat(path, { baseDir: BaseDirectory.AppLocalData });
+        const path = `${folderName}/${name}`;
+        const { size, mtime } = await stat(path, { baseDir });
   
         return {
           name,
           type,
+          path,
           size: type === 'file' ? `${(size / (1024 * 1024)).toFixed(2)} MB` : 'N/A',
           modified: new Date(mtime).toISOString().split('T')[0], 
         };
@@ -29,7 +36,7 @@ export const getFolderInformation = async (folderName='RepoShareDirs', baseDir =
     }
   };
 
-export const watchFolder = async (ws) => {
+export const watchFolder = async () => {
   try {
     await watch(
       'RepoShareDirs',
@@ -38,18 +45,44 @@ export const watchFolder = async (ws) => {
         const path = event.paths[0];
         const name = path.split('\\').pop();
 
-        if (event.kind === 'create') {
-          const isDirectory = event.type === 'directory';
-          const action = isDirectory ? 'createFolder' : 'createFile';
-          if (!isDirectory) {
-            // Create the file if it's not a directory
-            await invoke('create_file', { path });
-          }
-          ws.send(JSON.stringify({ action, name }));
-        } else if (event.kind === 'update') {
-          // Handle file modification
+        let action;
+        const eventType = Object.keys(event.type)[0];
+
+        if (eventType === 'create') {
+          action = 'createFolder';
+        } else if (eventType === 'update') {
           await invoke('modify_file', { path });
-          ws.send(JSON.stringify({ action: 'updateFile', fileName: name }));
+          action = 'updateFile';
+        } else if (eventType === 'modify' && event.type.modify.kind === 'rename') {
+          const newPath = event.paths[1];
+          const newName = newPath.split('\\').pop();
+          action = 'renameFolder';
+          filesRef.put({
+            action,
+            oldName: name,
+            newName: newName,
+            oldPath: path,
+            newPath: newPath,
+            timestamp: Date.now()
+          });
+        } else if (eventType === 'remove') {
+          action = 'deleteFolder';
+        }
+
+        if (action) {
+          console.log(`Sending action to Gun server: ${action}, name: ${name}, path: ${path}`);
+          filesRef.put({
+            action,
+            name,
+            path,
+            timestamp: Date.now()
+          }, (ack) => {
+            if (ack.err) {
+              console.error('Error sending data to Gun server:', ack.err);
+            } else {
+              console.log('Data successfully sent to Gun server:', ack);
+            }
+          });
         }
       },
       {
@@ -61,15 +94,16 @@ export const watchFolder = async (ws) => {
     console.error('Error watching folder:', error);
   }
 };
+
 export const deleteFolder = async (FolderName) => {
   try {
-    await remove(`RepoShareDirs/${FolderName}`, {
+    await remove(`${FolderName}`, {
       baseDir: BaseDirectory.AppLocalData,
       recursive: true,
     });
     return true
   } catch (error) {
-    console.error('Error watching folder:', error);
+    console.error('Error deleting folder:', error);
     return false
   }
 };
@@ -182,11 +216,9 @@ export const applyChangesToFile = async (filePath, changes) => {
  * @param {string} content - The content to write into the file.
  * @returns {Promise<boolean>} - True if the file is created successfully, false otherwise.
  */
-export const createFile = async (filePath, content = 'Hello world') => {
+export const createFile = async (filePath) => {
   try {
     const file = await create(filePath, { baseDir: BaseDirectory.AppLocalData });
-    await file.write(new TextEncoder().encode(content));
-    await file.close();
     return true;
   } catch (error) {
     console.error('Error creating file:', error);
@@ -217,13 +249,51 @@ export const deleteFile = async (filePath) => {
  */
 export const renameFile = async (oldPath, newPath) => {
   try {
+    console.log('Renaming file from:', oldPath, 'to:', newPath);
+
+    const baseDir = BaseDirectory.AppLocalData;
+
     await rename(oldPath, newPath, {
-      fromPathBaseDir: BaseDirectory.AppLocalData,
-      toPathBaseDir: BaseDirectory.Temp,
+      fromPathBaseDir: baseDir,
+      toPathBaseDir: baseDir,
     });
+
+    filesRef.put({
+      action: 'renameFile',
+      oldName: oldPath.split('/').pop(),
+      newName: newPath.split('/').pop(),
+      oldPath,
+      newPath,
+      timestamp: Date.now()
+    });
+
     return true;
   } catch (error) {
     console.error('Error renaming file:', error);
+    return false;
+  }
+};
+
+/**
+ * Renames a folder from an old path to a new path.
+ * @param {string} oldPath - The current path of the folder.
+ * @param {string} newName - The new name for the folder.
+ * @returns {Promise<boolean>} - True if the folder is renamed successfully, false otherwise.
+ */
+export const renameFolder = async (oldPath, newName) => {
+  try {
+    const directoryPath = oldPath.substring(0, oldPath.lastIndexOf('/'));
+    const newPath = `${directoryPath}/${newName}`;
+
+    await rename(oldPath, newPath, {
+      fromPathBaseDir: BaseDirectory.AppLocalData,
+      toPathBaseDir: BaseDirectory.AppLocalData,
+    });
+
+    console.log(`Folder renamed from ${oldPath} to ${newPath}`);
+    return true;
+  } catch (error) {
+    console.error('Error renaming folder:', error);
     return false;
   }
 };

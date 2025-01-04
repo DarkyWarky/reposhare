@@ -18,20 +18,21 @@ import {
 } from "@material-tailwind/react";
 import {
   FolderIcon,
+  DocumentIcon,
   EllipsisVerticalIcon,
-  ShareIcon,
   TrashIcon,
 } from "@heroicons/react/24/outline";
 import {
   getFolderInformation,
   createFolder,
-  watchFolder,
   deleteFolder,
-  applyChangesToFile,
   createFile,
   deleteFile,
-  renameFile
+  watchFolder,
 } from '../utils/FileFunction';
+import Gun from 'gun';
+import { invoke } from '@tauri-apps/api/core';
+import { appLocalDataDir } from '@tauri-apps/api/path';
 
 const Home = () => {
   const [files, setFiles] = useState([]);
@@ -42,20 +43,13 @@ const Home = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isFileModalOpen, setIsFileModalOpen] = useState(false);
   const [isRenameModalOpen, setIsRenameModalOpen] = useState(false);
+  const [renameFolderName, setRenameFolderName] = useState("");
+  const [folderToRename, setFolderToRename] = useState(null);
   const [selectedFile, setSelectedFile] = useState(null);
-  const ws = new WebSocket('ws://localhost:8080');
-
-  ws.onopen = () => {
-    console.log('WebSocket connection established');
-  };
-
-  ws.onerror = (error) => {
-    console.error('WebSocket error:', error);
-  };
-
-  ws.onclose = () => {
-    console.log('WebSocket connection closed');
-  };
+  const gun = Gun({
+    peers: ['http://localhost:8765/gun']
+  });
+  const filesRef = gun.get('files');
 
   const getFiles = async (path = currentPath) => {
     try {
@@ -66,6 +60,17 @@ const Home = () => {
     }
   };
 
+  const handleFolderClick = (folderName) => {
+    const newPath = `${currentPath}/${folderName}`;
+    setCurrentPath(newPath);
+    getFiles(newPath);
+  };
+
+  const handleBackToRoot = () => {
+    setCurrentPath('RepoShareDirs');
+    getFiles('RepoShareDirs');
+  };
+
   const handleCreateFolder = async () => {
     if (!newFolderName.trim()) {
       alert("Folder name cannot be empty.");
@@ -73,15 +78,18 @@ const Home = () => {
     }
 
     try {
-      const success = await createFolder(`RepoShareDirs/${newFolderName}`);
+      const baseDir = await appLocalDataDir();
+      const folderPath = `${baseDir}/RepoShareDirs/${newFolderName}`;
+      const success = await createFolder(folderPath);
       if (success) {
-        alert("Folder created successfully.");
         setNewFolderName("");
         setIsModalOpen(false);
         getFiles();
-        const message = JSON.stringify({ action: 'createFolder', folderName: newFolderName });
-        console.log("Sending message to server:", message);
-        ws.send(message);
+        filesRef.put({
+          action: 'createFolder',
+          folderName: folderPath,
+          timestamp: Date.now()
+        });
       } else {
         alert("Failed to create folder.");
       }
@@ -91,16 +99,47 @@ const Home = () => {
     }
   };
 
+  const handleCreateFile = async () => {
+    if (!newFileName.trim()) {
+      alert("File name cannot be empty.");
+      return;
+    }
+
+    try {
+      const baseDir = await appLocalDataDir();
+      const filePath = `${baseDir}/RepoShareDirs/${newFileName}`;
+      const success = await createFile(filePath);
+      if (success) {
+        setNewFileName("");
+        setIsFileModalOpen(false);
+        getFiles();
+        filesRef.put({
+          action: 'createFile',
+          fileName: filePath,
+          timestamp: Date.now()
+        });
+      } else {
+        alert("Failed to create file.");
+      }
+    } catch (error) {
+      console.error("Error creating file:", error);
+      alert("An error occurred while creating the file.");
+    }
+  };
+
   const handleDeleteFolder = async (folderName) => {
     if (window.confirm(`Are you sure you want to delete the folder "${folderName}"?`)) {
       try {
-        const success = await deleteFolder(folderName);
+        const baseDir = await appLocalDataDir();
+        const folderPath = `${baseDir}/RepoShareDirs/${folderName}`;
+        const success = await deleteFolder(folderPath);
         if (success) {
-          alert("Folder deleted successfully.");
           getFiles();
-          const message = JSON.stringify({ action: 'deleteFolder', folderName });
-          console.log("Sending message to server:", message);
-          ws.send(message);
+          filesRef.put({
+            action: 'deleteFolder',
+            folderName: folderPath,
+            timestamp: Date.now()
+          });
         } else {
           alert("Failed to delete folder.");
         }
@@ -111,50 +150,19 @@ const Home = () => {
     }
   };
 
-  const handleAction = (action, fileName) => {
-    console.log(`${action} clicked for ${fileName}`);
-  };
-
-  const handleFolderClick = (folderName) => {
-    setCurrentPath(`${currentPath}/${folderName}`);
-    getFiles(`${currentPath}/${folderName}`);
-  };
-
-  const handleCreateFile = async () => {
-    if (!newFileName.trim()) {
-      alert("File name cannot be empty.");
-      return;
-    }
-
-    try {
-      const success = await createFile(`${currentPath}/${newFileName}`);
-      if (success) {
-        alert("File created successfully.");
-        setNewFileName("");
-        setIsFileModalOpen(false);
-        getFiles();
-        const message = JSON.stringify({ action: 'createFile', fileName: newFileName });
-        console.log("Sending message to server:", message);
-        ws.send(message);
-      } else {
-        alert("Failed to create file.");
-      }
-    } catch (error) {
-      console.error("Error creating file:", error);
-      alert("An error occurred while creating the file.");
-    }
-  };
-
   const handleDeleteFile = async (fileName) => {
     if (window.confirm(`Are you sure you want to delete the file "${fileName}"?`)) {
       try {
-        const success = await deleteFile(`${currentPath}/${fileName}`);
+        const baseDir = await appLocalDataDir();
+        const filePath = `${baseDir}/RepoShareDirs/${fileName}`;
+        const success = await deleteFile(filePath);
         if (success) {
-          alert("File deleted successfully.");
           getFiles();
-          const message = JSON.stringify({ action: 'deleteFile', fileName });
-          console.log("Sending message to server:", message);
-          ws.send(message);
+          filesRef.put({
+            action: 'deleteFile',
+            fileName: filePath,
+            timestamp: Date.now()
+          });
         } else {
           alert("Failed to delete file.");
         }
@@ -165,73 +173,104 @@ const Home = () => {
     }
   };
 
-  const handleRenameFile = async () => {
-    if (!renameFileName.trim()) {
-      alert("New file name cannot be empty.");
+
+  const handleRenameFolder = async () => {
+    if (!renameFolderName.trim()) {
+      alert("New folder name cannot be empty.");
       return;
     }
 
-    try {
-      const success = await renameFile(`${currentPath}/${selectedFile}`, `${currentPath}/${renameFileName}`);
-      if (success) {
-        alert("File renamed successfully.");
-        setRenameFileName("");
+    if (folderToRename && folderToRename.path) {
+      try {
+        const baseDir = await appLocalDataDir();
+        const oldPath = `${baseDir}/RepoShareDirs/${folderToRename.name}`;
+        const newPath = `${baseDir}/RepoShareDirs/${renameFolderName}`;
+        
+        console.log('Renaming folder from:', oldPath, 'to:', newPath);
+
+        await invoke('rename_item', { oldPath, newPath });
+        setRenameFolderName("");
         setIsRenameModalOpen(false);
         getFiles();
-        const message = JSON.stringify({ action: 'renameFile', oldName: selectedFile, newName: renameFileName });
-        console.log("Sending message to server:", message);
-        ws.send(message);
-      } else {
-        alert("Failed to rename file.");
+        filesRef.put({
+          action: 'renameFolder',
+          oldName: folderToRename.name,
+          newName: renameFolderName,
+          oldPath,
+          newPath,
+          timestamp: Date.now()
+        });
+      } catch (error) {
+        console.error("Failed to rename folder:", error);
+        alert("Failed to rename folder.");
       }
-    } catch (error) {
-      console.error("Error renaming file:", error);
-      alert("An error occurred while renaming the file.");
+    } else {
+      console.error("Folder to rename is not set correctly.");
+      alert("An error occurred. Please try again.");
     }
   };
 
-  const handleFileAction = (action, fileName) => {
-    setSelectedFile(fileName);
-    if (action === 'rename') {
+  const openRenameModal = (folder) => {
+    if (folder && folder.name && folder.path) {
+      setFolderToRename(folder);
+      setRenameFolderName(folder.name);
       setIsRenameModalOpen(true);
-    } else if (action === 'delete') {
-      handleDeleteFile(fileName);
+    } else {
+      console.error("Invalid folder object:", folder);
+      alert("An error occurred. Please try again.");
     }
   };
 
   useEffect(() => {
     getFiles();
-    watchFolder(ws);
+    watchFolder();
 
-    ws.onmessage = async (event) => {
-      const { action, folderName, fileName } = JSON.parse(event.data);
-      console.log("Received message from server:", event.data);
+    filesRef.on((data) => {
+      if (!data) return;
+      
+      const action = data.action;
+      const folderName = data.folderName;
+      const fileName = data.fileName;
+      const oldPath = data.oldPath;
+      const newPath = data.newPath;
+
       switch (action) {
         case 'createFolder':
-          alert(`Folder "${folderName}" created by another user.`);
-          await createFolder(`RepoShareDirs/${folderName}`);
+          createFolder(folderName);
           getFiles();
           break;
         case 'deleteFolder':
-          alert(`Folder "${folderName}" deleted by another user.`);
-          await deleteFolder(folderName);
+          deleteFolder(folderName);
           getFiles();
           break;
         case 'createFile':
-          alert(`File "${fileName}" created by another user.`);
+          createFile(fileName);
           getFiles();
           break;
+        case 'deleteFile':
+          deleteFile(fileName);
+          getFiles();
+          break;
+        case 'renameFile':
+          invoke('rename_item', { oldPath, newPath })
+            .then(() => getFiles())
+            .catch((error) => console.error('Error renaming file:', error));
+          break;
+        case 'renameFolder':
+          invoke('rename_item', { oldPath, newPath })
+            .then(() => getFiles())
+            .catch((error) => console.error('Error renaming folder:', error));
+          break;
         case 'updateFile':
-          alert(`File "${fileName}" updated by another user.`);
           getFiles();
           break;
         default:
           console.error('Unknown action:', action);
       }
-    };
+    });
 
     return () => {
-      ws.close();
+      filesRef.off();
     };
   }, []);
 
@@ -255,7 +294,11 @@ const Home = () => {
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-4">
                   <div className="rounded-lg p-2">
-                    <FolderIcon className="h-8 w-8" />
+                    {file.type === 'folder' ? (
+                      <FolderIcon className="h-8 w-8" />
+                    ) : (
+                      <DocumentIcon className="h-8 w-8" />
+                    )}
                   </div>
                   <div>
                     <Typography variant="h6" color="white" className="mb-0">
@@ -276,13 +319,13 @@ const Home = () => {
                   <MenuList>
                     <MenuItem
                       className="flex items-center gap-2"
-                      onClick={() => handleFileAction('rename', file.name)}
+                      onClick={() => openRenameModal(file)}
                     >
                       Rename
                     </MenuItem>
                     <MenuItem
                       className="flex items-center gap-2 text-red-500 hover:bg-red-50"
-                      onClick={() => handleFileAction('delete', file.name)}
+                      onClick={() => file.type === 'folder' ? handleDeleteFolder(file.name) : handleDeleteFile(file.name)}
                     >
                       <TrashIcon className="h-4 w-4" />
                       Delete
@@ -353,12 +396,12 @@ const Home = () => {
       </Dialog>
 
       <Dialog open={isRenameModalOpen} handler={setIsRenameModalOpen} size="sm">
-        <DialogHeader>Rename File</DialogHeader>
+        <DialogHeader>Rename Folder</DialogHeader>
         <DialogBody divider>
           <Input
-            label="New File Name"
-            value={renameFileName}
-            onChange={(e) => setRenameFileName(e.target.value)}
+            label="New Folder Name"
+            value={renameFolderName}
+            onChange={(e) => setRenameFolderName(e.target.value)}
             className="text-black"
           />
         </DialogBody>
@@ -371,15 +414,20 @@ const Home = () => {
           >
             Cancel
           </Button>
-          <Button variant="gradient" color="green" onClick={handleRenameFile}>
+          <Button variant="gradient" color="green" onClick={handleRenameFolder}>
             Rename
           </Button>
         </DialogFooter>
       </Dialog>
 
-      <button onClick={() => getFiles()} className="mt-4 p-2 bg-blue-500 text-white rounded">
-        Refresh Files
-      </button>
+      <div className="mt-4 flex gap-2">
+        <button onClick={() => getFiles()} className="p-2 bg-blue-500 text-white rounded">
+          Refresh Files
+        </button>
+        <button onClick={handleBackToRoot} className="p-2 bg-red-500 text-white rounded">
+          Back to Root
+        </button>
+      </div>
     </div>
   );
 };
