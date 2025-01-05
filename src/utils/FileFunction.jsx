@@ -44,39 +44,57 @@ export const watchFolder = async () => {
         console.log('File system event:', event);
         const path = event.paths[0];
         const name = path.split('\\').pop();
+        const parentFolder = path.split('\\').slice(1).join('\\');
 
-        let action;
+        let action = null;
+        let data = {
+          action: '',
+          name: '',
+          path: '',
+          oldName: '',
+          newName: '',
+          oldPath: '',
+          newPath: '',
+          timestamp: Date.now()
+        };
+
         const eventType = Object.keys(event.type)[0];
 
         if (eventType === 'create') {
           action = 'createFolder';
+          data.name = name;
+          data.path = path;
         } else if (eventType === 'update') {
           await invoke('modify_file', { path });
           action = 'updateFile';
+          data.name = name;
+          data.path = path;
         } else if (eventType === 'modify' && event.type.modify.kind === 'rename') {
           const newPath = event.paths[1];
           const newName = newPath.split('\\').pop();
           action = 'renameFolder';
-          filesRef.put({
-            action,
-            oldName: name,
-            newName: newName,
-            oldPath: path,
-            newPath: newPath,
-            timestamp: Date.now()
-          });
+          data.oldName = name;
+          data.newName = newName;
+          data.oldPath = path;
+          data.newPath = newPath;
         } else if (eventType === 'remove') {
+          // Prevent deletion of the main directory
+          if (name === 'RepoShareDirs') {
+            console.warn('Attempt to delete main directory blocked.');
+            return;
+          }
+
+          // Directly set the action without checking metadata
           action = 'deleteFolder';
+          data.name = name;
+          data.path = path;
+          data.folderName = parentFolder;
         }
 
         if (action) {
-          console.log(`Sending action to Gun server: ${action}, name: ${name}, path: ${path}`);
-          filesRef.put({
-            action,
-            name,
-            path,
-            timestamp: Date.now()
-          }, (ack) => {
+          data.action = action;
+          console.log(`Sending action to Gun server: ${action}, data:`, data);
+          filesRef.put(data, (ack) => {
             if (ack.err) {
               console.error('Error sending data to Gun server:', ack.err);
             } else {

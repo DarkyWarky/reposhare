@@ -173,6 +173,41 @@ const Home = () => {
     }
   };
 
+  const handleRenameFile = async () => {
+    if (!renameFileName.trim()) {
+      alert("New file name cannot be empty.");
+      return;
+    }
+
+    if (selectedFile) {
+      try {
+        const baseDir = await appLocalDataDir();
+        const oldPath = `${baseDir}/RepoShareDirs/${selectedFile}`;
+        const newPath = `${baseDir}/RepoShareDirs/${renameFileName}`;
+        
+        console.log('Renaming file from:', oldPath, 'to:', newPath);
+
+        await invoke('rename_item', { oldPath, newPath });
+        setRenameFileName("");
+        setIsRenameModalOpen(false);
+        getFiles();
+        filesRef.put({
+          action: 'renameFile',
+          oldName: selectedFile,
+          newName: renameFileName,
+          oldPath,
+          newPath,
+          timestamp: Date.now()
+        });
+      } catch (error) {
+        console.error("Error renaming file:", error);
+        alert("An error occurred while renaming the file.");
+      }
+    } else {
+      console.error("File to rename is not set correctly.");
+      alert("An error occurred. Please try again.");
+    }
+  };
 
   const handleRenameFolder = async () => {
     if (!renameFolderName.trim()) {
@@ -189,6 +224,7 @@ const Home = () => {
         console.log('Renaming folder from:', oldPath, 'to:', newPath);
 
         await invoke('rename_item', { oldPath, newPath });
+        console.log('Folder renamed successfully');
         setRenameFolderName("");
         setIsRenameModalOpen(false);
         getFiles();
@@ -201,8 +237,8 @@ const Home = () => {
           timestamp: Date.now()
         });
       } catch (error) {
-        console.error("Failed to rename folder:", error);
-        alert("Failed to rename folder.");
+        console.error("Error renaming folder:", error);
+        alert("An error occurred while renaming the folder.");
       }
     } else {
       console.error("Folder to rename is not set correctly.");
