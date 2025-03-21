@@ -26,8 +26,8 @@ Make sure you have the following installed:
 
 ### Clone the Repository
 ```sh
-git clone https://github.com/yourusername/tauri-react-gunjs.git
-cd tauri-react-gunjs
+git clone https://github.com/DarkyWarky/reposhare.git
+cd reposhare
 ```
 
 ### Install Dependencies
