@@ -33,6 +33,8 @@ import {
 import Gun from 'gun';
 import { invoke } from '@tauri-apps/api/core';
 import { appLocalDataDir } from '@tauri-apps/api/path';
+import { writeTextFile, BaseDirectory } from '@tauri-apps/plugin-fs';
+import sha256 from 'js-sha256';
 
 const Home = () => {
   const [files, setFiles] = useState([]);
@@ -263,12 +265,17 @@ const Home = () => {
 
     filesRef.on((data) => {
       if (!data) return;
-      
+      console.log(data);
       const action = data.action;
       const folderName = data.folderName;
-      const fileName = data.fileName;
+      const fileName = data.name;
       const oldPath = data.oldPath;
       const newPath = data.newPath;
+      const checksum = data.checksum;
+      const content = data.content;
+      const path = data.path;
+
+      console.log(`Received action: ${action} for file: ${fileName || folderName}`);
 
       switch (action) {
         case 'createFolder':
@@ -298,10 +305,29 @@ const Home = () => {
             .catch((error) => console.error('Error renaming folder:', error));
           break;
         case 'updateFile':
-          getFiles();
+          console.log(`Processing update for file: ${path}`);
+          const currentChecksum = sha256(content);
+          console.log(`Current checksum: ${currentChecksum}, Received checksum: ${checksum}`);
+
+          if (currentChecksum !== checksum) {
+            console.log(`Checksum mismatch detected. Updating file: ${path}`);
+
+            const baseDir = appLocalDataDir();
+            const relativePath = path.replace(`${baseDir}\\`, '');
+            const filePath = `com.reposhare.app/RepoShareDirs/${relativePath}`;
+
+            writeTextFile(filePath, content, { baseDir: BaseDirectory.AppLocalData })
+              .then(() => {
+                console.log(`File ${filePath} updated successfully`);
+                getFiles();
+              })
+              .catch((error) => console.error(`Error updating file ${fileName}:`, error));
+          } else {
+            console.log(`File ${fileName} is already up-to-date. No update needed.`);
+          }
           break;
         default:
-          console.error('Unknown action:', action);
+          console.error(`Unknown action: ${action} for file: ${fileName || folderName}`);
       }
     });
 

@@ -59,7 +59,6 @@ function Sidebar() {
             />
           }
         >
-          <ListItem className="p-0 text-white" selected={open === 1}>
             <AccordionHeader onClick={() => handleOpen(1)} className="border-b-0 p-3">
               <ListItemPrefix>
                 <PresentationChartBarIcon className="h-5 w-5 text-white" />
@@ -68,29 +67,7 @@ function Sidebar() {
                 Dashboard
               </Typography>
             </AccordionHeader>
-          </ListItem>
-          <AccordionBody className="py-1">
-            <List className="p-0 text-white">
-              <ListItem className="text-white">
-                <ListItemPrefix>
-                  <ChevronRightIcon strokeWidth={3} className="h-3 w-5 text-white" />
-                </ListItemPrefix>
-                Analytics
-              </ListItem>
-              <ListItem className="text-white">
-                <ListItemPrefix>
-                  <ChevronRightIcon strokeWidth={3} className="h-3 w-5 text-white" />
-                </ListItemPrefix>
-                Reporting
-              </ListItem>
-              <ListItem className="text-white">
-                <ListItemPrefix>
-                  <ChevronRightIcon strokeWidth={3} className="h-3 w-5 text-white" />
-                </ListItemPrefix>
-                Projects
-              </ListItem>
-            </List>
-          </AccordionBody>
+          
         </Accordion>
         <Accordion
           open={open === 2}
@@ -111,51 +88,9 @@ function Sidebar() {
               </Typography>
             </AccordionHeader>
           </ListItem>
-          <AccordionBody className="py-1">
-            <List className="p-0 text-white">
-              <ListItem className="text-white">
-                <ListItemPrefix>
-                  <ChevronRightIcon strokeWidth={3} className="h-3 w-5 text-white" />
-                </ListItemPrefix>
-                Orders
-              </ListItem>
-              <ListItem className="text-white">
-                <ListItemPrefix>
-                  <ChevronRightIcon strokeWidth={3} className="h-3 w-5 text-white" />
-                </ListItemPrefix>
-                Products
-              </ListItem>
-            </List>
-          </AccordionBody>
+
         </Accordion>
-        <hr className="my-2 border-gray-700" />
-        <ListItem className="text-white">
-          <ListItemPrefix>
-            <InboxIcon className="h-5 w-5 text-white" />
-          </ListItemPrefix>
-          Inbox
-          <ListItemSuffix>
-            <Chip value="14" size="sm" variant="ghost" color="blue-gray" className="rounded-full text-white" />
-          </ListItemSuffix>
-        </ListItem>
-        <ListItem className="text-white">
-          <ListItemPrefix>
-            <UserCircleIcon className="h-5 w-5 text-white" />
-          </ListItemPrefix>
-          Profile
-        </ListItem>
-        <ListItem className="text-white">
-          <ListItemPrefix>
-            <Cog6ToothIcon className="h-5 w-5 text-white" />
-          </ListItemPrefix>
-          Settings
-        </ListItem>
-        <ListItem className="text-white">
-          <ListItemPrefix>
-            <PowerIcon className="h-5 w-5 text-white" />
-          </ListItemPrefix>
-          Log Out
-        </ListItem>
+        
       </List>
     </Card>
   );

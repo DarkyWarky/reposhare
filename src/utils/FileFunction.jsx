@@ -1,6 +1,7 @@
-import { readDir, mkdir, BaseDirectory, watch, stat, remove, rename, create } from '@tauri-apps/plugin-fs';
+import { readDir, mkdir, BaseDirectory, watch, stat, remove, rename, create, readTextFile } from '@tauri-apps/plugin-fs';
 import { invoke } from '@tauri-apps/api/core';
 import Gun from 'gun';
+import sha256 from 'js-sha256';
 
 const gun = Gun({
   peers: ['http://localhost:8765/gun']
@@ -44,18 +45,21 @@ export const watchFolder = async () => {
         console.log('File system event:', event);
         const path = event.paths[0];
         const name = path.split('\\').pop();
-        const parentFolder = path.split('\\').slice(1).join('\\');
+        const folderPath = path.substring(0, path.lastIndexOf('\\'));
 
         let action = null;
         let data = {
           action: '',
-          name: '',
-          path: '',
+          name: name,
+          path: path,
           oldName: '',
           newName: '',
           oldPath: '',
           newPath: '',
-          timestamp: Date.now()
+          timestamp: Date.now(),
+          checksum: '',
+          content: '',
+          sourceId: '',
         };
 
         const eventType = Object.keys(event.type)[0];
@@ -88,7 +92,27 @@ export const watchFolder = async () => {
           action = 'deleteFolder';
           data.name = name;
           data.path = path;
-          data.folderName = parentFolder;
+          data.folderName = folderPath;
+        } else if (eventType === 'modify' && event.type.modify.kind !== 'rename') {
+          // Read the file content
+          const content = await readTextFile(path, { baseDir: BaseDirectory.AppLocalData });
+          // Compute checksum using js-sha256
+          const checksum = sha256(content);
+          data.action = 'updateFile';
+          data.checksum = checksum;
+          data.content = content; // Include content to send to Gun server
+          data.sourceId = generateSourceId(); // Generate a unique sourceId
+
+          console.log('Data to be sent to Gun server:', data);
+
+          // Send to Gun server
+          filesRef.put(data, (ack) => {
+            if (ack.err) {
+              console.error('Error sending data to Gun server:', ack.err);
+            } else {
+              console.log('Data successfully sent to Gun server:', ack);
+            }
+          });
         }
 
         if (action) {
@@ -111,6 +135,11 @@ export const watchFolder = async () => {
   } catch (error) {
     console.error('Error watching folder:', error);
   }
+};
+
+// Helper function to generate a unique sourceId
+const generateSourceId = () => {
+  return `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 };
 
 export const deleteFolder = async (FolderName) => {
